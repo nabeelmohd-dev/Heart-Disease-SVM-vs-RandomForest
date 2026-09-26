@@ -1,0 +1,812 @@
+---
+title: "MS6022 Statistical Learning — Assignment"
+author: "Nabeel Mohammed | ID: 25044419"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: false
+    number_sections: false
+    fig_caption: true
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body {
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 15px;
+  line-height: 1.70;
+  color: #1a1a1a;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+h1.title  { font-family: 'Times New Roman', Times, serif;
+            font-size: 1.75em; font-weight: bold; color: #1a3a5c;
+            border-bottom: 3px solid #1f78b4; padding-bottom: 6px; }
+h4.author { font-size: 1.0em; color: #333; margin-top: 3px; }
+h4.date   { font-size: 0.93em; color: #666; margin-top: 2px; margin-bottom: 1.4em; }
+h1, h2, h3 {
+  font-family: 'Times New Roman', Times, serif;
+  font-weight: bold;
+  color: #1a3a5c;
+}
+h1 { font-size: 1.30em; border-bottom: 2px solid #1f78b4;
+     padding-bottom: 4px; margin-top: 1.8em; margin-bottom: 0.6em; }
+h2 { font-size: 1.18em; border-bottom: 1px solid #cce0f0;
+     padding-bottom: 3px; margin-top: 1.5em; margin-bottom: 0.5em; }
+h3 { font-size: 1.06em; color: #2166ac; margin-top: 1.2em; margin-bottom: 0.4em; }
+p  { text-align: justify; margin-bottom: 0.75em; }
+li { margin-bottom: 0.3em; }
+caption { font-size: 0.90em; color: #444; font-style: italic; }
+table   { margin: 0.7em auto; font-size: 0.93em; }
+img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+hr  { border: none; border-top: 1px solid #ccc; margin: 1.4em 0; }
+
+@media print {
+  body {
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 11pt;
+    line-height: 1.45;
+    color: #000;
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+  h1, h2, h3 {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #000;
+    border-color: #999;
+    margin-top: 12pt;
+    margin-bottom: 3pt;
+    page-break-after: avoid;
+  }
+  h1 { page-break-before: always; }
+  h1:first-of-type { page-break-before: avoid; }
+  img          { page-break-inside: avoid; max-width: 100%; }
+  table        { page-break-inside: avoid; font-size: 10pt; }
+  figure       { page-break-inside: avoid; }
+  p            { margin-bottom: 4pt; orphans: 3; widows: 3; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = FALSE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center",
+  fig.width  = 7.2,
+  fig.height = 3.8,
+  dpi        = 130
+)
+
+required_pkgs <- c("tidyverse", "e1071", "randomForest",
+                   "caret", "pROC", "scales", "kableExtra", "patchwork")
+new_pkgs <- required_pkgs[!required_pkgs %in% installed.packages()[,"Package"]]
+if (length(new_pkgs)) install.packages(new_pkgs, repos = "https://cloud.r-project.org",
+                                        quiet = TRUE)
+invisible(lapply(required_pkgs, library, character.only = TRUE))
+
+hd_palette <- c("No" = "#fb9a99", "Yes" = "#1f78b4")
+
+
+theme_report <- function(base = 10) {
+  theme_minimal(base_size = base) +
+  theme(
+    text            = element_text(family = "serif"),
+    plot.title      = element_text(face = "bold", size = base),
+    axis.title      = element_text(size = base - 1),
+    axis.text       = element_text(size = base - 2),
+    legend.text     = element_text(size = base - 2),
+    legend.title    = element_text(size = base - 1),
+    legend.key.size = unit(0.35, "cm"),
+    plot.margin     = ggplot2::margin(4, 6, 4, 6)
+  )
+}
+```
+
+```{r data-load, include=FALSE}
+set.seed(123)
+heart_data     <- read.csv("HeartDiseaseData.csv", stringsAsFactors = TRUE)
+class_counts   <- table(heart_data$HeartDisease)
+class_props    <- prop.table(class_counts)
+majority_class <- names(which.max(class_props))
+minority_class <- names(which.min(class_props))
+imbalance_ratio <- round(max(class_props) / min(class_props), 1)
+n_missing      <- sum(is.na(heart_data))
+```
+
+# Part A — Technical Report
+
+## 1. Introduction
+
+According to the Centers for Disease Control and Prevention (2022), heart
+disease remains one of the leading causes of death across racial and ethnic
+groups in the United States, with roughly 47% of adults carrying at least one
+major risk factor — high blood pressure, high cholesterol, or smoking. Given
+this burden, identifying which individual characteristics most strongly predict
+disease is a practical public health priority. The dataset used here comes from
+the Behavioral Risk Factor Surveillance System (BRFSS), a CDC telephone survey
+that collects annual health status data from US adults.
+
+The working dataset contains **`r format(nrow(heart_data), big.mark=",")`
+observations** across **`r ncol(heart_data)` variables** —
+`r ncol(heart_data)-1` predictors and a binary outcome (`HeartDisease`)
+recording whether a respondent had been diagnosed with coronary heart disease
+or myocardial infarction. The dataset is
+`r if(n_missing == 0) "complete, with no missing values detected." else paste0("missing ", n_missing, " values, addressed prior to modelling.")`
+The outcome is unequally distributed: the `r majority_class` class accounts for
+**`r round(max(class_props)*100, 1)`%** of respondents and the
+`r minority_class` class for **`r round(min(class_props)*100, 1)`%**
+(ratio ≈ `r imbalance_ratio` : 1). This distribution reflects the composition
+of this specific pre-processed BRFSS subset and may not match population-level
+prevalence. The practical consequence for model evaluation is discussed in
+Section 4.
+
+The guiding question is: **what factors most strongly influence whether a
+person has heart disease?** Two methodologically distinct classifiers are
+compared. The first is a **Support Vector Machine with a Radial Kernel**
+(James et al., 2021, Ch. 9), which identifies the decision boundary that
+maximally separates the two classes in a kernel-induced feature space. The
+second is a **Random Forest** (James et al., 2021, Ch. 8), an ensemble of
+decision trees that achieves low generalisation error through bootstrap
+aggregation and random feature subsampling. Comparing these two approaches
+creates a natural opportunity to discuss how geometric and ensemble methods
+differ in bias–variance behaviour, computational cost, and interpretability.
+Both models are assessed on Accuracy, Sensitivity, Specificity, and AUC-ROC.
+In a clinical screening context, missing a true diagnosis is a more serious
+error than triggering an unnecessary follow-up, so Sensitivity is treated as
+the primary metric throughout.
+
+## 2. Exploratory Data Analysis
+
+```{r eda-grid1, fig.cap=paste0("**Figure 1.** *Left:* Class distribution — '", majority_class, "' is the majority class at ", round(max(class_props)*100,1), "% (vs ", round(min(class_props)*100,1), "% '", minority_class, "'), a ", imbalance_ratio, ":1 ratio. A naive classifier always predicting the majority class achieves ", round(max(class_props)*100,1), "% accuracy with zero discrimination — underscoring why Sensitivity and AUC-ROC are prioritised throughout. *Right:* BMI distributions by heart disease status — non-overlapping notches confirm a statistically significant median difference (~5% level); elevated BMI reflects obesity-driven pathways including hypertension, dyslipidaemia, and systemic inflammation."), fig.height=3.5}
+p_class <- ggplot(as.data.frame(class_counts),
+                  aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_col(width = 0.45, show.legend = FALSE) +
+  geom_text(aes(label = paste0(round(class_props * 100, 1), "%")),
+            vjust = -0.5, size = 3, fontface = "bold") +
+  scale_fill_manual(values = hd_palette) +
+  scale_y_continuous(labels = scales::comma,
+                     expand = expansion(mult = c(0, 0.14))) +
+  labs(title = "Class Distribution", x = "Heart Disease", y = "Count") +
+  theme_report()
+
+p_bmi <- ggplot(heart_data, aes(x = HeartDisease, y = BMI, fill = HeartDisease)) +
+  geom_boxplot(alpha = 0.85, notch = TRUE,
+               outlier.colour = "grey60", outlier.size = 0.4) +
+  scale_fill_manual(values = hd_palette) +
+  coord_cartesian(ylim = c(10, 70)) +
+  labs(title = "BMI by Heart Disease", x = "Heart Disease", y = "BMI",
+       caption = "Axis capped at 70; <0.1% of records above — retained in calculations") +
+  theme_report() +
+  theme(legend.position = "none",
+        plot.caption = element_text(size = 7, colour = "grey50"))
+
+p_class | p_bmi
+```
+
+```{r eda-grid2, fig.cap="**Figure 2.** Heart disease proportion by smoking status (left), stroke history (centre), and sex (right). Smokers show a disproportionately higher disease burden through tobacco-driven vascular endothelial damage. Stroke history is a strong comorbidity indicator, reflecting shared vascular pathology (atherosclerosis, hypertension, atrial fibrillation). Males show higher prevalence, consistent with oestrogen's cardioprotective effect in pre-menopausal females.", fig.height=3.5}
+p_smoke <- ggplot(heart_data, aes(x = Smoking, fill = HeartDisease)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.25) +
+  scale_fill_manual(values = hd_palette, name = "HD") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Smoking", x = "Smoker", y = "Proportion") +
+  theme_report()
+
+p_stroke <- ggplot(heart_data, aes(x = Stroke, fill = HeartDisease)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.25) +
+  scale_fill_manual(values = hd_palette, name = "HD") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Stroke History", x = "Had Stroke", y = "Proportion") +
+  theme_report()
+
+p_sex <- ggplot(heart_data, aes(x = Sex, fill = HeartDisease)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.25) +
+  scale_fill_manual(values = hd_palette, name = "HD") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Sex", x = "Sex", y = "Proportion") +
+  theme_report()
+
+p_smoke | p_stroke | p_sex
+```
+
+```{r eda-grid3, fig.cap="**Figure 3.** *Left:* Age gradient — heart disease prevalence rises monotonically from the youngest to the oldest cohort, identifying age as the dominant non-modifiable predictor. *Right:* Mental health days (binned) — as poor mental health days increase, heart disease proportion rises systematically. Chronic stress and depression are linked to elevated cortisol, systemic inflammation, and autonomic dysregulation — established cardiovascular pathways.", fig.height=4.0}
+p_age <- ggplot(heart_data, aes(x = AgeCategory, fill = HeartDisease)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.25) +
+  coord_flip() +
+  scale_fill_manual(values = hd_palette, name = "Heart Disease") +
+  scale_x_discrete(limits = rev(levels(heart_data$AgeCategory))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Age Group", x = NULL, y = "Proportion") +
+  theme_report()
+
+p_mental <- heart_data %>%
+  mutate(MH_band = case_when(
+    MentalHealth == 0  ~ "0 days",
+    MentalHealth <= 7  ~ "1-7 days",
+    MentalHealth <= 14 ~ "8-14 days",
+    TRUE               ~ "15+ days"
+  )) %>%
+  mutate(MH_band = factor(MH_band,
+                          levels = c("0 days","1-7 days","8-14 days","15+ days"))) %>%
+  ggplot(aes(x = MH_band, fill = HeartDisease)) +
+  geom_bar(position = "fill", colour = "white", linewidth = 0.25) +
+  scale_fill_manual(values = hd_palette, name = "Heart Disease") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Mental Health Days",
+       x = "Poor Mental Health Days (past 30)", y = "Proportion") +
+  theme_report()
+
+p_age | p_mental
+```
+
+**EDA Summary.** The figures point to three recurring patterns. Age is by
+far the strongest non-modifiable risk factor, with prevalence rising sharply
+across every decade. Lifestyle and clinical variables — BMI, smoking, and
+stroke history in particular — show clear and medically plausible links to
+higher disease rates. Sex differences are consistent with what the literature
+suggests about hormonal protection in younger women. Three predictors not
+shown individually — `AlcoholDrinking`, `PhysicalHealth`, and `SleepTime` —
+are included in both models. Of these, `PhysicalHealth` turns out to be the
+third most important predictor in the Random Forest (Figure 6), which suggests
+that self-reported health burden carries more discriminative signal than a
+single bivariate plot would imply.
+
+## 3. Methodology
+
+```{r modelling-setup, include=FALSE}
+set.seed(123)
+n_obs         <- nrow(heart_data)
+train_indices <- sample(seq_len(n_obs), size = floor(0.70 * n_obs))
+train_set     <- heart_data[ train_indices, ]
+test_set      <- heart_data[-train_indices, ]
+train_props   <- round(prop.table(table(train_set$HeartDisease)) * 100, 1)
+test_props    <- round(prop.table(table(test_set$HeartDisease))  * 100, 1)
+```
+
+### 3.1 Data Partitioning
+
+The data were split 70/30 into a **training set**
+(*n* = `r format(nrow(train_set), big.mark=",")`) and a **test set**
+(*n* = `r format(nrow(test_set), big.mark=",")`). A fixed seed (123) was set
+to make the split reproducible. Checking the class proportions across both
+subsets (`r train_props["No"]`% / `r train_props["Yes"]`% in training;
+`r test_props["No"]`% / `r test_props["Yes"]`% in test) confirms that the
+random draw preserved the overall outcome distribution.
+
+### 3.2 Model 1 — Support Vector Machine (Radial Kernel)
+
+A Support Vector Machine (Vapnik, 1995; James et al., 2021, Ch. 9) works by
+finding the **maximal-margin hyperplane** — the boundary between classes that
+maintains the largest possible gap to the nearest training points on either
+side. Those boundary-defining points are called *support vectors*. Because the
+SVM focuses entirely on the boundary geometry rather than the distributions of
+the two classes, it belongs to the family of discriminative classifiers and
+comes with strong theoretical guarantees on generalisation error.
+
+In practice, classes overlap and perfect separation is impossible. The
+**soft-margin** formulation introduces slack variables $\xi_i \geq 0$ and a
+cost parameter $C$ governing tolerance for misclassification:
+
+$$\min_{\boldsymbol{w}, b, \boldsymbol{\xi}} \;\frac{1}{2}\|\boldsymbol{w}\|^2 + C\sum_{i=1}^{n}\xi_i \quad \text{s.t.} \;\; y_i(\boldsymbol{w}^\top \boldsymbol{x}_i + b) \geq 1 - \xi_i, \;\; \xi_i \geq 0$$
+
+A large $C$ penalises misclassification heavily, producing a tight boundary
+with low bias but high variance. A small $C$ allows more violations, yielding
+a wider and more stable boundary at the cost of some additional bias. Here
+$C = 1$ was chosen as a balanced starting point. Since the EDA shows that
+predictor relationships are not linear, the **Radial Basis Function (RBF)
+kernel** is used:
+
+$$K(\boldsymbol{x}_i, \boldsymbol{x}_j) = \exp\!\left(-\gamma \|\boldsymbol{x}_i - \boldsymbol{x}_j\|^2\right)$$
+
+The RBF kernel maps inputs into a high-dimensional feature space where a
+linear boundary becomes equivalent to a curved one in the original space — all
+without explicitly computing the transformation. This is the kernel trick
+(James et al., 2021, Ch. 9). The bandwidth parameter $\gamma = 1/p$, where $p$
+is the number of predictors, follows the `e1071` package default.
+
+**Preprocessing.** Because SVM margins are measured in Euclidean distance,
+all numeric predictors were centred and scaled — means and standard deviations
+were estimated on the SVM training set only and applied unchanged to the test
+set, so no test-set information entered the scaling step. Categorical predictors
+(`Sex`, `Smoking`, `AlcoholDrinking`, `Stroke`, `AgeCategory`) were left as
+factors; `e1071::svm()` handles these through internal dummy encoding and they
+require no scaling.
+
+**Computational considerations.** Kernel SVM solvers have $\mathcal{O}(n^2)$
+to $\mathcal{O}(n^3)$ time complexity, which makes them impractical on very
+large datasets without subsampling. For training sets exceeding 10,000 records,
+a stratified subsample preserving the class ratio would be drawn (James et al.,
+2021). Since this dataset has `r format(nrow(train_set), big.mark=",")` training
+records, the full set was used directly — so both models trained on identical
+data, and any performance differences reflect the algorithms rather than data
+volume. The test set is always the full 30% holdout.
+
+```{r svm-fit, include=FALSE}
+set.seed(123)
+
+svm_max_n       <- 10000L
+svm_subsampled  <- nrow(train_set) > svm_max_n   
+
+if (svm_subsampled) {
+  svm_idx_no  <- which(train_set$HeartDisease == "No")
+  svm_idx_yes <- which(train_set$HeartDisease == "Yes")
+  prop_yes    <- mean(train_set$HeartDisease == "Yes")
+  target_yes  <- round(svm_max_n * prop_yes)
+  target_no   <- svm_max_n - target_yes
+  svm_sample  <- c(sample(svm_idx_no,  pmin(length(svm_idx_no),  target_no)),
+                   sample(svm_idx_yes, pmin(length(svm_idx_yes), target_yes)))
+  svm_train   <- train_set[svm_sample, ]
+} else {
+  svm_train <- train_set   
+}
+
+
+svm_preproc    <- preProcess(svm_train, method = c("center", "scale"))
+svm_train_proc <- predict(svm_preproc, svm_train)
+svm_test_proc  <- predict(svm_preproc, test_set)
+
+p_svm <- ncol(svm_train_proc) - 1      
+set.seed(123)
+svm_model <- svm(HeartDisease ~ ., data = svm_train_proc,
+                 kernel = "radial", cost = 1, gamma = 1 / p_svm,
+                 probability = TRUE)
+```
+
+### 3.3 Model 2 — Random Forest
+
+A Random Forest (Breiman, 2001; James et al., 2021, Ch. 8) builds an ensemble
+of $B$ decision trees using bootstrap aggregating (*bagging*). What sets it apart
+from plain bagging is that at each candidate split, only $m = \lfloor\sqrt{p}\rfloor$
+randomly chosen predictors are considered, not all $p$. This keeps the trees
+from being too similar to each other. For an ensemble of $B$ trees with
+pairwise correlation $\rho$ and individual variance $\sigma^2$, the variance
+of the average prediction is:
+
+$$\text{Var}(\bar{T}) = \rho\sigma^2 + \frac{1 - \rho}{B}\sigma^2$$
+
+As $B$ grows, the second term shrinks towards zero. The more important gain
+comes from reducing $\rho$: lower inter-tree correlation pushes the floor
+$\rho\sigma^2$ down, which plain bagging cannot do because it uses all
+predictors at every split and keeps $\rho$ high. This variance reduction is
+the reason Random Forests tend to outperform single trees and standard bagging
+on tabular classification problems (James et al., 2021, Ch. 8).
+
+The Random Forest does not require predictor scaling, handles numeric and
+categorical variables together without any special preprocessing, and its trees
+can be built in parallel so it scales well. It was trained on the **full
+training set** (*n* = `r format(nrow(train_set), big.mark=",")`).
+
+Parameters: `ntree = 500` — the OOB error was confirmed to plateau well before
+300 trees (Figure 4); `mtry` = $\lfloor\sqrt{p}\rfloor$ = `r floor(sqrt(ncol(train_set)-1))`
+(recommended default for classification, James et al., 2021); and
+`importance = TRUE` to enable post-hoc variable interpretation via Mean Decrease
+in Accuracy (MDA) and Mean Decrease in Gini (MDG).
+
+```{r rf-fit, include=FALSE}
+p_predictors <- ncol(train_set) - 1
+mtry_value   <- floor(sqrt(p_predictors))
+set.seed(123)
+rf_model <- randomForest(HeartDisease ~ ., data = train_set,
+                         ntree = 500, mtry = mtry_value, importance = TRUE)
+```
+
+```{r rf-convergence, fig.cap=paste0("**Figure 4.** Random Forest OOB misclassification rate across 500 trees. The curve stabilises well before 300 trees, confirming `ntree = 500` is a conservative and sufficient choice. The OOB error provides an unbiased estimate of test-set error without requiring a separate validation set — each tree is evaluated on the ~37% of training observations not used in its bootstrap sample."), fig.height=2.8}
+oob_df <- data.frame(
+  trees     = seq_len(nrow(rf_model$err.rate)),
+  oob_error = rf_model$err.rate[, "OOB"]
+)
+ggplot(oob_df, aes(x = trees, y = oob_error)) +
+  geom_line(colour = "#1f78b4", linewidth = 0.8) +
+  labs(title = "Random Forest: OOB Error Convergence",
+       x = "Number of Trees", y = "OOB Misclassification Rate") +
+  theme_report()
+```
+
+## 4. Results
+
+```{r predictions, include=FALSE}
+
+svm_pred_obj <- predict(svm_model, svm_test_proc, probability = TRUE)
+svm_class    <- svm_pred_obj
+svm_probs    <- attr(svm_pred_obj, "probabilities")[, "Yes"]
+svm_cm       <- confusionMatrix(svm_class, test_set$HeartDisease, positive = "Yes")
+
+rf_class  <- predict(rf_model, test_set, type = "class")
+rf_probs  <- predict(rf_model, test_set, type = "prob")[, "Yes"]
+rf_cm     <- confusionMatrix(rf_class, test_set$HeartDisease, positive = "Yes")
+
+svm_roc <- roc(test_set$HeartDisease, svm_probs,
+               levels = c("No","Yes"), direction = "<", quiet = TRUE)
+rf_roc  <- roc(test_set$HeartDisease, rf_probs,
+               levels = c("No","Yes"), direction = "<", quiet = TRUE)
+svm_auc <- as.numeric(auc(svm_roc))
+rf_auc  <- as.numeric(auc(rf_roc))
+
+naive_accuracy  <- as.numeric(max(prop.table(table(test_set$HeartDisease))))
+
+
+naive_sens <- if(majority_class == "Yes") 1.0 else 0.0
+naive_spec <- if(majority_class == "Yes") 0.0 else 1.0
+naive_zero_metric <- if(majority_class == "Yes") "Specificity" else "Sensitivity"
+naive_zero_meaning <- if(majority_class == "Yes") {
+  paste0("every healthy patient is incorrectly flagged as at-risk, ",
+         "making the classifier clinically useless despite its apparent accuracy")
+} else {
+  paste0("every heart disease case is missed entirely, ",
+         "making the classifier clinically useless despite its apparent accuracy")
+}
+
+svm_acc  <- as.numeric(svm_cm$overall["Accuracy"])
+rf_acc   <- as.numeric(rf_cm$overall["Accuracy"])
+svm_sens <- as.numeric(svm_cm$byClass["Sensitivity"])
+rf_sens  <- as.numeric(rf_cm$byClass["Sensitivity"])
+svm_spec <- as.numeric(svm_cm$byClass["Specificity"])
+rf_spec  <- as.numeric(rf_cm$byClass["Specificity"])
+
+w_acc  <- if(svm_acc  >= rf_acc)  "SVM" else "Random Forest"
+w_sens <- if(svm_sens >= rf_sens) "SVM" else "Random Forest"
+w_spec <- if(svm_spec >= rf_spec) "SVM" else "Random Forest"
+w_auc  <- if(svm_auc  >= rf_auc)  "SVM" else "Random Forest"
+l_sens <- if(w_sens == "SVM") "Random Forest" else "SVM"
+l_spec <- if(w_spec == "SVM") "Random Forest" else "SVM"
+l_auc  <- if(w_auc  == "SVM") "Random Forest" else "SVM"
+
+top_sens  <- round(max(svm_sens, rf_sens), 4)
+bot_sens  <- round(min(svm_sens, rf_sens), 4)
+top_spec  <- round(max(svm_spec, rf_spec), 4)
+bot_spec  <- round(min(svm_spec, rf_spec), 4)
+top_auc   <- round(max(svm_auc,  rf_auc),  3)
+bot_auc   <- round(min(svm_auc,  rf_auc),  3)
+
+svm_wins <- sum(c(svm_acc > rf_acc, svm_sens > rf_sens,
+                  svm_spec > rf_spec, svm_auc > rf_auc))
+rf_wins  <- 4L - svm_wins
+better_col <- if(svm_wins >= rf_wins) 2L else 3L
+
+rf_best_metric <- if(rf_spec > svm_spec && rf_sens > svm_sens) {
+  "both Sensitivity and Specificity"
+} else if(rf_spec > svm_spec) {
+  "Specificity"
+} else if(rf_sens > svm_sens) {
+  "Sensitivity"
+} else {
+  "AUC-ROC"
+}
+```
+
+### 4.1 Performance Metrics
+
+Results are based on the full held-out test set
+(*n* = `r format(nrow(test_set), big.mark=",")`). Before looking at model
+outputs, it is worth establishing a **naive baseline**: a classifier that
+always predicts the majority class ("`r majority_class`") with no learning
+whatsoever achieves **`r round(naive_accuracy * 100, 1)`% accuracy** — simply
+by exploiting the class imbalance. This baseline has **`r naive_zero_metric`
+= 0**, meaning `r naive_zero_meaning`. Any model worth deploying must clear
+this bar by a meaningful margin on both Sensitivity and Specificity, not just
+on Accuracy.
+
+Four metrics are reported. **Accuracy** measures overall correctness but is
+unreliable when classes are unequal. **Sensitivity** (True Positive Rate) is
+the share of actual heart disease cases that a model catches — the most
+clinically important metric, since a missed diagnosis is far more serious than
+a false alarm. **Specificity** (True Negative Rate) measures how reliably
+healthy patients are cleared. **AUC-ROC** summarises discriminative performance
+across every possible decision threshold; a model with no skill scores 0.5.
+
+```{r perf-table}
+metrics_df <- data.frame(
+  Metric = c("Accuracy", "Sensitivity", "Specificity", "AUC-ROC"),
+  SVM    = round(c(svm_acc, svm_sens, svm_spec, svm_auc), 4),
+  RF     = round(c(rf_acc,  rf_sens,  rf_spec,  rf_auc),  4)
+)
+
+tbl <- metrics_df %>%
+  kbl(caption = paste0("Table 1. Test-set performance (n = ",
+                       format(nrow(test_set), big.mark=","),
+                       "). Positive class = 'Yes' (Heart Disease). ",
+                       "Naive majority-class baseline accuracy = ",
+                       round(naive_accuracy*100,1), "% with ",
+                       naive_zero_metric, " = 0. ",
+                       ifelse(svm_subsampled,
+                              paste0("SVM trained on a stratified subsample of ",
+                                     format(nrow(svm_train), big.mark=","),
+                                     " observations; Random Forest on the full ",
+                                     format(nrow(train_set), big.mark=","),
+                                     " training observations."),
+                              paste0("Both models trained on the full training set ",
+                                     "(n = ", format(nrow(train_set), big.mark=","),
+                                     "), ensuring a fair comparison."))),
+      col.names = c("Metric", "SVM (Radial Kernel)", "Random Forest"),
+      align = c("l","c","c")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, position = "center")
+
+if (better_col == 2L) {
+  tbl <- tbl %>% column_spec(2, bold = TRUE, color = "white", background = "#1f78b4")
+} else {
+  tbl <- tbl %>% column_spec(3, bold = TRUE, color = "white", background = "#1f78b4")
+}
+tbl
+```
+
+Both models comfortably clear the `r round(naive_accuracy*100,1)`% naive
+baseline and achieve meaningful scores on both Sensitivity and Specificity.
+The **`r w_sens`** identifies more true heart disease cases, with Sensitivity
+of `r top_sens` against `r bot_sens` for the `r l_sens`. The **`r w_spec`**
+does a better job clearing healthy patients, with Specificity of `r top_spec`
+against `r bot_spec` for the `r l_spec`. On AUC-ROC the **`r w_auc`** leads
+(`r top_auc` vs `r bot_auc`), indicating better overall discrimination when
+the decision threshold is allowed to vary.
+
+### 4.2 ROC Curves
+
+```{r roc-plot, fig.cap=paste0("**Figure 5.** ROC curves for both models on the full held-out test set. The dashed diagonal represents a no-skill classifier (AUC = 0.5). The **", w_auc, "** (AUC = ", top_auc, ") sits above the **", l_auc, "** (AUC = ", bot_auc, ") across most thresholds. Both AUC values substantially exceed 0.5, confirming genuine signal extraction beyond random chance. The curves cross at several thresholds, confirming that neither model dominates unconditionally — the preferred model depends on the chosen operating point."), fig.height=3.8}
+roc_to_df <- function(roc_obj, label) {
+  data.frame(fpr   = 1 - roc_obj$specificities,
+             tpr   = roc_obj$sensitivities,
+             Model = label)
+}
+roc_df <- bind_rows(
+  roc_to_df(svm_roc, paste0("SVM Radial (AUC = ",    round(svm_auc, 3), ")")),
+  roc_to_df(rf_roc,  paste0("Random Forest (AUC = ", round(rf_auc,  3), ")"))
+)
+ggplot(roc_df, aes(x = fpr, y = tpr, colour = Model)) +
+  geom_line(linewidth = 1.0) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60") +
+  scale_colour_manual(values = c("#e31a1c","#1f78b4")) +
+  coord_equal() +
+  labs(title = "ROC Curves: SVM (Radial) vs. Random Forest",
+       x = "False Positive Rate (1 − Specificity)",
+       y = "True Positive Rate (Sensitivity)", colour = NULL) +
+  theme_report() +
+  theme(legend.position = c(0.64, 0.18),
+        legend.background = element_rect(fill = "white", colour = "grey80"))
+```
+
+### 4.3 Feature Importance (Random Forest)
+
+```{r importance-data, include=FALSE}
+importance_df <- as.data.frame(importance(rf_model)) %>%
+  rownames_to_column(var = "Variable") %>%
+  rename(MDA = MeanDecreaseAccuracy, MDG = MeanDecreaseGini) %>%
+  arrange(desc(MDG))
+top3_vars <- importance_df$Variable[1:3]
+
+var_explanation <- list(
+  AgeCategory    = "Cardiovascular risk compounds with age through arterial stiffening, cumulative oxidative stress, and declining tissue repair capacity, producing a steep monotonic prevalence gradient across cohorts.",
+  BMI            = "Elevated BMI drives cardiovascular risk through obesity-related hypertension, dyslipidaemia, insulin resistance, and systemic inflammation. As a modifiable factor, it represents a key target for preventive intervention.",
+  PhysicalHealth = "Days of poor physical health proxy cumulative illness burden. Chronic conditions — including musculoskeletal disease, metabolic disorders, and prior cardiac events — are linked to heart disease through shared inflammatory pathways.",
+  MentalHealth   = "Chronic psychological distress is associated with elevated cortisol, sympathetic nervous system activation, and systemic inflammation — established pathways to coronary artery disease. This variable may act as both a risk factor and a downstream consequence of cardiovascular burden.",
+  Smoking        = "Nicotine promotes endothelial dysfunction, platelet aggregation, and accelerated atherosclerosis. Even former smokers carry residual vascular damage, explaining persistent predictive power beyond active smoking status.",
+  Stroke         = "Stroke and coronary heart disease share key aetiological pathways — atherosclerosis, hypertension, and atrial fibrillation — making prior stroke a powerful comorbidity indicator.",
+  Sex            = "Males show consistently higher prevalence, reflecting the cardioprotective role of oestrogen in pre-menopausal females, which promotes favourable lipid profiles and reduces arterial stiffness.",
+  AlcoholDrinking = "Heavy alcohol consumption is linked to hypertensive cardiomyopathy and arrhythmia; however, its individual-level predictive contribution is attenuated by stronger predictors already captured in the model.",
+  SleepTime      = "Sleep duration has a U-shaped relationship with cardiovascular risk: both insufficient and excessive sleep are associated with inflammatory markers and metabolic dysregulation."
+)
+```
+
+Feature importance is derived **exclusively from the Random Forest model**.
+The SVM's mapping of inputs into an infinite-dimensional kernel-induced feature
+space via the kernel trick precludes direct attribution of predictions to
+individual predictors — it is a geometric black box with no native equivalent
+of variable importance. The lollipop chart below (Figure 6) reports Mean
+Decrease in Gini impurity (MDG) for each predictor across all 500 trees:
+larger values indicate greater contribution to node purity, and therefore to
+classification accuracy, across the ensemble.
+
+```{r importance-plot, fig.cap="**Figure 6.** Random Forest variable importance ranked by Mean Decrease in Gini (MDG). Larger MDG values indicate greater contribution to node purity across all 500 trees. Note: Gini importance is biased towards continuous predictors and those with many levels (e.g., AgeCategory, BMI); it should be interpreted alongside the EDA patterns in Figures 1–3.", fig.height=4.0}
+ggplot(importance_df, aes(x = reorder(Variable, MDG), y = MDG)) +
+  geom_segment(aes(xend = Variable, yend = 0), colour = "darkgrey", linewidth = 0.7) +
+  geom_point(colour = "#1f78b4", size = 4, alpha = 0.9) +
+  coord_flip() +
+  labs(title = "Random Forest: Variable Importance (Mean Decrease in Gini)",
+       x = NULL, y = "Mean Decrease in Gini Impurity") +
+  theme_report() +
+  theme(panel.grid.major.y = element_blank())
+```
+
+## 5. Discussion
+
+### 5.1 Model Comparison
+
+The two models approach classification from different angles and, predictably,
+do not perform identically across all metrics. Neither clearly dominates the
+other — the better choice depends on what the clinical application needs most.
+
+**Mathematical contrast.** At their core, the two methods solve the
+classification problem differently. The SVM searches for a single geometric
+boundary in a kernel-transformed space, focused entirely on separating the two
+classes by the widest possible margin. It does not model the class distributions
+at all. The downside is interpretability: predictions depend on dot products
+between support vectors in a high-dimensional space, so there is no direct way
+to ask which predictors drove a given decision. The Random Forest builds an
+ensemble from hundreds of decision trees — individually interpretable structures
+— and uses their average to produce stable predictions. As a by-product of this
+structure, it generates variable importance scores (Figure 6), which tell us
+which predictors were most useful across the ensemble. In a healthcare setting
+where knowing *why* a model raises a flag is as important as whether it raises
+it, this is a practical advantage the SVM simply cannot match.
+
+**Bias–variance tradeoff.** The two models control variance in different
+ways. With $C = 1$, the SVM deliberately allows some misclassifications to
+keep the boundary wide and stable — a margin-geometry approach to variance
+control. The Random Forest instead averages `r rf_model$ntree` de-correlated
+trees, driving ensemble variance towards $\rho\sigma^2$ while keeping bias
+close to that of a full unpruned tree. On mixed-predictor tabular data like
+this dataset, ensemble averaging tends to be the more effective strategy, which
+is reflected in the RF's stronger **`r rf_best_metric`** here. The **`r w_spec`** leads on Specificity
+(`r top_spec` vs `r bot_spec` for the `r l_spec`), clearing healthy patients
+more reliably. On AUC-ROC the **`r w_auc`** edges ahead (`r top_auc` vs
+`r bot_auc`). In practice, the choice between the two comes down to clinical
+priorities: a mass-screening programme, where false negatives are most costly,
+would favour higher Sensitivity; a resource-constrained follow-up pathway,
+where unnecessary referrals need to be limited, would weigh Specificity more
+heavily.
+
+**Computational scalability.** With $\mathcal{O}(n^2)$–$\mathcal{O}(n^3)$
+complexity, the SVM's training time grows rapidly with dataset size. Here both
+models used the full `r format(nrow(train_set), big.mark=",")` training records,
+keeping the comparison on equal footing. At the scale of the full CDC BRFSS
+survey (>300,000 records), however, the SVM would require subsampling or an
+approximate kernel method such as Nyström approximation, while the Random
+Forest could be trained in parallel on the complete dataset. This scalability
+gap is independent of any single metric and is a real practical consideration
+for population-level deployment.
+
+### 5.2 Feature Importance and Key Risk Factors
+
+Figure 6 ranks all predictors by their average contribution to node purity
+across the 500 trees. The top three — **`r top3_vars[1]`**,
+**`r top3_vars[2]`**, and **`r top3_vars[3]`** — each have a plausible
+biological mechanism behind them:
+
+1. **`r top3_vars[1]`**: `r var_explanation[[top3_vars[1]]]`
+
+2. **`r top3_vars[2]`**: `r var_explanation[[top3_vars[2]]]`
+
+3. **`r top3_vars[3]`**: `r var_explanation[[top3_vars[3]]]`
+
+The remaining predictors show coherent signals, as the EDA confirms. One
+methodological caveat worth noting: Gini importance is known to favour
+continuous variables and those with many distinct values (such as `AgeCategory`
+and `BMI`). The rankings in Figure 6 should therefore be read alongside the
+bivariate patterns in Figures 1–3 rather than taken at face value in isolation.
+
+### 5.3 Limitations
+
+**Survey self-report bias.** Every variable in the dataset, including the
+disease outcome itself, comes from a telephone interview. Respondents may not
+recall a diagnosis accurately, and conditions that were never formally diagnosed
+would not appear at all. Variables like `MentalHealth` and `PhysicalHealth`
+are 30-day self-assessments of subjective wellbeing, which are not the same as
+clinical measurements.
+
+**Reverse causation.** High scores on `MentalHealth` and `PhysicalHealth`
+are associated with heart disease in this data, but the direction of that
+relationship is not clear. It is equally plausible that poor health days are a
+symptom of living with heart disease as it is that they are a risk factor. A
+cross-sectional survey cannot answer this question; a prospective cohort design
+would be needed.
+
+**Class imbalance.** The `r imbalance_ratio`:1 class ratio makes it harder
+for models to learn from the minority class. Both models here were run with
+default settings and no resampling. Techniques such as SMOTE, class-weighted
+training, or threshold adjustment could improve minority-class detection and
+would be worth exploring in follow-up work.
+
+**SVM scalability.** On this dataset both models trained on the same
+observations. At larger scale — such as the full BRFSS survey — the SVM's
+quadratic complexity would require either subsampling or an approximate kernel
+method, introducing a potential data-volume asymmetry that could influence
+results. This is worth keeping in mind for any attempt to replicate this
+analysis on the full dataset.
+
+## 6. Conclusions
+
+Two classification methods were compared — a **Support Vector Machine with a
+Radial Kernel** (James et al., 2021, Ch. 9) and a **Random Forest** (James et
+al., 2021, Ch. 8) — applied to a BRFSS health survey to identify what drives
+heart disease risk.
+
+Neither model dominates on every metric. The **`r w_sens`** catches more true
+disease cases (Sensitivity = `r top_sens`), which matters most in screening
+contexts. The **`r w_spec`** clears healthy patients more reliably (Specificity
+= `r top_spec`). On overall discrimination, the **`r w_auc`** leads with an
+AUC of `r top_auc`. Both models clear the naive baseline by a meaningful margin,
+which confirms they are picking up genuine patterns rather than just predicting
+the majority class. The Random Forest has the additional benefit of producing
+variable importance scores — something the SVM cannot offer — which allows
+clinicians to understand which factors are driving the model's output.
+
+Age, BMI, and physical health burden emerged as the strongest predictors,
+consistent with cardiovascular epidemiology (Centers for Disease Control and
+Prevention, 2022). Of these, BMI is the most directly actionable. Smoking,
+ranked sixth in Gini importance but well supported by the EDA and by decades
+of clinical evidence, is another modifiable target. Both warrant attention in
+preventive programmes aimed at middle-aged adults before age-related risk
+accumulates further.
+
+## References
+
+Breiman, L. (2001) 'Random forests', *Machine Learning*, 45(1), pp. 5–32. doi:10.1023/A:1010933404324.
+
+Centers for Disease Control and Prevention (2022) *Heart disease facts*. Available at: https://www.cdc.gov/heart-disease/data-research/facts-stats/index.html (Accessed: `r format(Sys.Date(), '%d %B %Y')`).
+
+James, G., Witten, D., Hastie, T. and Tibshirani, R. (2021) *An introduction to statistical learning: with applications in R*. 2nd edn. New York: Springer.
+
+Vapnik, V. (1995) *The nature of statistical learning theory*. New York: Springer-Verlag.
+
+---
+
+# Part B — Non-Technical Summary
+
+## What Puts Your Heart at Risk?
+
+Heart disease claims roughly one in every four lives in the United States.
+Despite its scale, many people are unaware of what specifically raises their
+personal risk. Researchers analysed health survey responses from US adults
+collected by the Centres for Disease Control and Prevention — participants
+reported their age, lifestyle, medical history, and wellbeing, along with
+whether they had been diagnosed with heart disease.
+
+**How Was It Studied?**
+
+Two computer-based tools were used. The first, a **support vector machine**,
+works by drawing the widest possible dividing line between healthy people and
+those at risk on a complex health-data map. The line curves to separate the
+groups as cleanly as possible, though the tool cannot easily explain why it
+drew the line where it did.
+
+The second, a **random forest**, builds 500 decision trees each trained on a
+slightly different slice of the data. Every tree votes on each new patient, and
+the majority wins. Because the trees each see different data and consider
+different questions, their combined answer is more reliable than any single
+tree. This tool also ranks which factors it found most informative.
+
+**What Did We Find?**
+
+Both tools identified genuine patterns well beyond random chance. Each has a
+practical edge: one catches more people who truly have heart disease (fewer
+missed diagnoses), while the other more accurately clears those who do not.
+In healthcare, missing a real case is the graver error, so the tool with fewer
+missed diagnoses is preferred for screening.
+
+Five factors stood out as the strongest predictors:
+
+1. **Age** is the most powerful factor — risk rises steeply and consistently
+   as the body ages.
+
+2. **BMI (body weight)** is a strong predictor. Higher weight raises blood
+   pressure, worsens cholesterol, and drives inflammation that damages the heart.
+
+3. **Physical health burden** matters. People reporting more days of poor
+   physical health were significantly more likely to have heart disease,
+   reflecting how chronic illness burdens the cardiovascular system over time.
+
+4. **Sleep duration** plays a surprising role. Both too little and too much
+   sleep are linked to inflammatory processes that elevate heart disease risk —
+   an often overlooked but important modifiable factor.
+
+5. **Mental health** is also significant. People who reported more days of
+   poor mental wellbeing had higher rates of heart disease, reflecting the
+   biological links between chronic stress, inflammation, and cardiovascular
+   damage.
+
+**Why Does This Matter?**
+
+BMI is directly modifiable, and smoking — ranked sixth but with established
+causal pathways — is also preventable. Helping people reach a healthier weight
+and quit smoking, especially in their 40s and 50s, could meaningfully cut new
+cases. The role of sleep and mental health as significant predictors shows that
+prevention must go beyond traditional cardiac risk factors — poor sleep and
+chronic stress deserve attention in routine health checks.
+
+*Ageing cannot be stopped, but understanding how it interacts with lifestyle
+gives us a real chance to intervene sooner — and save more lives.*
+
