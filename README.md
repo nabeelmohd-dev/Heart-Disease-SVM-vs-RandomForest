@@ -100,8 +100,8 @@ here; to reproduce, place `HeartDiseaseData.csv` in the same folder as the
 
 ```r
 install.packages(c("e1071", "randomForest", "pROC", "ggplot2", "caret"))
-rmarkdown::render("MS6022_Assignment_Nabeel_Mohammed.Rmd")
+rmarkdown::render("heart-disease-prediction.rmd")
 ```
 
 The full report, including a non-technical summary section, knits to
-`MS6022_Assignment_Nabeel_Mohammed.html`.
+`heart-disease-prediction.html`.
