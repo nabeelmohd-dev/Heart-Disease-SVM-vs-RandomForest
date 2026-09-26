@@ -16,18 +16,18 @@ more than raw accuracy.
 The pipeline:
 
 1. **EDA** — class balance, BMI distributions, and how heart disease risk
-   varies across smoking status, stroke history, sex, age group, and mental
-   health days.
+varies across smoking status, stroke history, sex, age group, and mental
+health days.
 2. **Data partitioning** — an 80/20 train/test split (3,793 training rows,
-   1,627 test rows), with both models trained on the identical training set
-   for a fair comparison.
+1,627 test rows), with both models trained on the identical training set
+for a fair comparison.
 3. **Model 1: SVM (Radial Kernel)** and **Model 2: Random Forest**, both
-   evaluated on the same held-out test set.
+evaluated on the same held-out test set.
 4. **Evaluation** — accuracy, sensitivity, specificity, and AUC-ROC, benchmarked
-   against the naive majority-class baseline.
+against the naive majority-class baseline.
 5. **Interpretation** — Random Forest variable importance (Gini) to identify
-   which risk factors drive predictions, plus OOB error convergence to confirm
-   the forest was large enough to stabilise.
+which risk factors drive predictions, plus OOB error convergence to confirm
+the forest was large enough to stabilise.
 
 ## Results
 
@@ -36,12 +36,12 @@ naive model that always predicts "No" scores 72.3% accuracy while catching
 zero true cases (specificity = 0). Both models comfortably beat that baseline
 while actually detecting positive cases.
 
-| Metric | SVM (Radial Kernel) | Random Forest |
-|---|---|---|
-| Accuracy | **0.8039** | 0.8027 |
-| Sensitivity | **0.9413** | 0.9260 |
-| Specificity | 0.4457 | **0.4812** |
-| AUC-ROC | **0.8021** | 0.7944 |
+|Metric|SVM (Radial Kernel)|Random Forest|
+|-|-|-|
+|Accuracy|**0.8039**|0.8027|
+|Sensitivity|**0.9413**|0.9260|
+|Specificity|0.4457|**0.4812**|
+|AUC-ROC|**0.8021**|0.7944|
 
 SVM edges out Random Forest on accuracy, sensitivity, and AUC-ROC, while
 Random Forest catches slightly more true negatives (specificity). In a
@@ -60,29 +60,29 @@ for.
 
 **Class distribution and BMI by outcome:**
 
-![EDA: class balance and BMI](eda-class-bmi.png)
+!\[EDA: class balance and BMI](eda-class-bmi.png)
 
 **Risk by smoking, stroke history, and sex:**
 
-![EDA: categorical risk factors](eda-categorical.png)
+!\[EDA: categorical risk factors](eda-categorical.png)
 
 **Risk by age group and mental health days:**
 
-![EDA: age and mental health](eda-age-mental.png)
+!\[EDA: age and mental health](eda-age-mental.png)
 
 **Random Forest variable importance:**
 
-![Feature importance](feature-importance.png)
+!\[Feature importance](feature-importance.png)
 
 **Random Forest OOB error convergence** — error stabilises around 20-21%
 misclassification after roughly 150-200 trees, confirming 500 trees was more
 than sufficient:
 
-![OOB convergence](rf-convergence.png)
+!\[OOB convergence](rf-convergence.png)
 
 **ROC curves, SVM vs Random Forest:**
 
-![ROC comparison](roc-comparison.png)
+!\[ROC comparison](roc-comparison.png)
 
 ## Tech stack
 
@@ -100,8 +100,11 @@ here; to reproduce, place `HeartDiseaseData.csv` in the same folder as the
 
 ```r
 install.packages(c("e1071", "randomForest", "pROC", "ggplot2", "caret"))
-rmarkdown::render("MS6022_Assignment_Nabeel_Mohammed.Rmd")
+rmarkdown::render("heart-disease-prediction.Rmd")
 ```
 
 The full report, including a non-technical summary section, knits to
-`MS6022_Assignment_Nabeel_Mohammed.html`.
+`heart-disease-prediction.html`.
+
+📄 \[View the full interactive report](https://nabeelmohd-dev.github.io/Heart-Disease-SVM-vs-RandomForest/heart-disease-prediction.html)
+
