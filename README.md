@@ -105,3 +105,4 @@ rmarkdown::render("heart-disease-prediction.rmd")
 
 The full report, including a non-technical summary section, knits to
 `heart-disease-prediction.html`.
+📄 [View the full interactive report](https://nabeelmohd-dev.github.io/Heart-Disease-SVM-vs-RandomForest/heart-disease-prediction.html)
